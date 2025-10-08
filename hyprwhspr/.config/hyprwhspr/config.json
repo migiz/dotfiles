@@ -1,0 +1,10 @@
+{
+	"primary_shortcut": "CAPS+ALT+F",
+	"model": "base.en",
+	"audio_feedback": true,
+	"start_sound_volume": 0.2,
+	"stop_sound_volume": 0.2,
+	"start_sound_path": "ping-up.ogg",
+	"stop_sound_path": "ping-down.ogg",
+	"word_overrides": {}
+}
