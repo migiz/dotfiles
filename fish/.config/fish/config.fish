@@ -2,14 +2,14 @@ set -U fish_greeting
 
 # PATH setup (porting from Omarchy bash configuration)
 # Add local binaries to PATH if not already present
-if not contains "$HOME/.local/bin" $PATH
-    set -gx PATH "$HOME/.local/bin" $PATH
-end
-
-# Add Cargo binaries to PATH if not already present
-if not contains "$HOME/.cargo/bin" $PATH
-    set -gx PATH "$HOME/.cargo/bin" $PATH
-end
+# if not contains "$HOME/.local/bin" $PATH
+#     set -gx PATH "$HOME/.local/bin" $PATH
+# end
+#
+# # Add Cargo binaries to PATH if not already present
+# if not contains "$HOME/.cargo/bin" $PATH
+#     set -gx PATH "$HOME/.cargo/bin" $PATH
+# end
 
 # Git abbreviations
 abbr gco 'git checkout'
@@ -20,10 +20,9 @@ abbr gr 'git rebase'
 abbr grc 'git rebase --continue'
 abbr grea 'git restore .'
 abbr gres 'git restore --staged .'
-abbr gpf 'git push --force'
+abbr gpf 'git push --force-with-lease'
 abbr lg lazygit
-abbr ld lazydocker
-abbr gd 'git diff | bat --color always'
+abbr gd 'git diff'
 abbr gs 'git status'
 abbr ga 'git add'
 abbr gp 'git push'
@@ -34,8 +33,6 @@ abbr gpr 'git pull --rebase'
 abbr gl 'git log | bat --color always'
 abbr gaa 'git add .'
 abbr gdc 'git diff --cached | bat --color always'
-abbr n nvim
-abbr nv neovide
 
 # Go test abbreviations
 abbr tt 'gotestsum --format testname'
@@ -43,6 +40,9 @@ abbr ts gotestsum
 
 # Utility abbreviations
 abbr c 'clear -x'
+abbr e 'explorer.exe .'
+abbr cc "CLAUDE_CODE_NO_FLICKER=1 claude"
+abbr cx "codex --yolo"
 
 # File system abbreviations
 abbr l 'eza -lha --group-directories-first --icons=auto --git'
@@ -56,6 +56,25 @@ abbr ff "fzf --preview 'bat --style=numbers --color=always {}'"
 abbr fsrc 'source ~/.config/fish/config.fish'
 
 abbr sc 'sesh connect $(sesh list | fzf)'
+
+abbr wezterm "wezterm.exe"
+abbr obsidian "Obsidian.exe"
+
+function neo --description "Starts headless nvim server and connects Neovide via WSL"
+    # Start headless nvim server in the background
+    # Pass any arguments (like filenames) to the server
+    echo "Starting headless nvim server..."
+    nvim --headless --listen localhost:6666 --cmd "let g:neovide=1" $argv &
+
+    # Give the server a brief moment to start listening
+    sleep 0.1
+
+    # Start Neovide client connecting to the server
+    echo "Connecting Neovide..."
+    neovide.exe --wsl --neovim-bin /opt/nvim-linux-x86_64/bin/nvim --fork --no-idle --server=localhost:6666 &
+end
+
+
 
 # Environment variables
 set -gx EDITOR nvim
@@ -83,5 +102,11 @@ if status is-interactive
     set -g fish_sequence_key_delay_ms 200
 end
 
-source (/usr/bin/starship init fish --print-full-init | psub)
-/usr/bin/mise activate fish | source
+source (/usr/local/bin/starship init fish --print-full-init | psub)
+
+zoxide init fish | source
+
+# Amp CLI
+export PATH="/home/mikko/.amp/bin:$PATH"
+
+/home/mikko/.local/bin/mise activate fish | source

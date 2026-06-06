@@ -91,7 +91,7 @@ format = "$symbol "
 [directory]
 disabled = false
 format = "[$path](bold fg:blue)"
-truncate_to_repo = true
+truncate_to_repo = false
 read_only = " 󰌾"
 
 [git_branch]
@@ -106,8 +106,8 @@ style = "bg:overlay1"
 
 [time]
 disabled = false
-format = '[[ $time](fg:overlay2)]($style)'
-time_format = "%R"                          # Hour:Minute Format
+format = '[[ $time ](fg:overlay2)]($style)'
+time_format = "%R"                           # Hour:Minute Format
 
 [lua]
 format = "[${symbol} ]($style)"
