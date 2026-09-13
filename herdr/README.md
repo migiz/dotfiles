@@ -22,9 +22,8 @@ editor's existing navigation outside Herdr.
 
 - **Auto Title** (`kryptamine/herdr-auto-title`): enabled, built from upstream
   commit `7fcec810280696b8b38b5bd884be2b340c73e02b` plus
-  [the local patch](patches/auto-title.patch). The patch preserves local commit
-  `651426ba9bc97be2654a20a178537afda73ac44e`: Nerd Font icons and removal of the
-  configured title suffix. Each run builds and tests a fresh checkout under
+  [the local patch](patches/auto-title.patch). The patch adds Nerd Font icons
+  while keeping live title updates. Each run builds and tests a fresh checkout under
   `$XDG_DATA_HOME/herdr-dotfiles` (default `~/.local/share/herdr-dotfiles`).
 - **Yazi Explorer** (`speardragon/herdr-yazi`): enabled; `prefix+y` opens a split,
   and `prefix+shift+y` opens a tab.
@@ -35,8 +34,6 @@ editor's existing navigation outside Herdr.
 
 All pins are recorded in [the setup script](../scripts/setup-herdr.sh).
 Auto Title settings are in [.config/herdr-auto-title/config.env](.config/herdr-auto-title/config.env).
-The ` | mikko` suffix is intentional; change it if the destination's terminal
-titles use a different suffix.
 
 ## Activation and maintenance
 
