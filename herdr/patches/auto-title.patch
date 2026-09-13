@@ -1,0 +1,242 @@
+diff --git a/cmd/herdr-auto-title/main.go b/cmd/herdr-auto-title/main.go
+index e88303b..013f7cb 100644
+--- a/cmd/herdr-auto-title/main.go
++++ b/cmd/herdr-auto-title/main.go
+@@ -60,0 +61,4 @@ func run() error {
++	if cfg.ShowIcons {
++		titles = resolver.NewIconed(titles, cfg.MaxLength)
++	}
++
+diff --git a/config.env.example b/config.env.example
+index 5c9d884..e9dc2a7 100644
+--- a/config.env.example
++++ b/config.env.example
+@@ -35,0 +36,3 @@
++
++# Local extension: prefix the title with a Nerd Font agent/program icon.
++#HERDR_AUTO_TITLE_ICONS=false
+diff --git a/docs/architecture/local-icons.md b/docs/architecture/local-icons.md
+new file mode 100644
+index 0000000..6649310
+--- /dev/null
++++ b/docs/architecture/local-icons.md
+@@ -0,0 +1,14 @@
++# Local icon extension
++
++Enable `HERDR_AUTO_TITLE_ICONS=true` to prefix Auto Title's own decision with
++an agent or foreground-program icon. The existing position decorator runs first,
++so the output is `icon position · title`. Both decorators honor the title width
++limit and use the same context pane as the title resolver.
++
++`HERDR_AUTO_TITLE_AGENT_NAME=false` removes repeated agent text.
++Unknown agents use a robot icon; unknown programs use a terminal.
++
++Run only Auto Title as the naming writer. A separate icon watcher would be
++mistaken for a manual rename and prevent future title updates.
++
++This checkout is a local branch; merging upstream changes requires rebuilding.
+diff --git a/internal/app/config.go b/internal/app/config.go
+index c28989c..fc3373e 100644
+--- a/internal/app/config.go
++++ b/internal/app/config.go
+@@ -28,0 +29 @@ const (
++	EnvIcons      = "HERDR_AUTO_TITLE_ICONS"
+@@ -63,0 +65 @@ type Config struct {
++	ShowIcons     bool
+@@ -92,0 +95 @@ func LoadConfig() (Config, []string) {
++	cfg.ShowIcons = fromEnv(&warnings, EnvIcons, cfg.ShowIcons, boolean)
+diff --git a/internal/app/config_test.go b/internal/app/config_test.go
+index f050e25..9ec99ae 100644
+--- a/internal/app/config_test.go
++++ b/internal/app/config_test.go
+@@ -30 +30 @@ func isolate(t *testing.T) {
+-		EnvPosition, EnvManual, EnvTranscript, EnvAgentName,
++		EnvPosition, EnvManual, EnvTranscript, EnvAgentName, EnvIcons,
+@@ -372,0 +373,10 @@ func TestAnUnsetManualFileKeepsTheDefault(t *testing.T) {
++
++func TestIconConfiguration(t *testing.T) {
++	isolate(t)
++	writeConfig(t, "HERDR_AUTO_TITLE_ICONS=true\n")
++
++	cfg, warnings := LoadConfig()
++	if !cfg.ShowIcons || len(warnings) != 0 {
++		t.Fatalf("unexpected config: %+v, warnings: %v", cfg, warnings)
++	}
++}
+diff --git a/internal/resolver/icons.go b/internal/resolver/icons.go
+new file mode 100644
+index 0000000..a25cbef
+--- /dev/null
++++ b/internal/resolver/icons.go
+@@ -0,0 +1,87 @@
++package resolver
++
++import (
++	"github.com/kryptamine/herdr-auto-title/internal/state"
++	"github.com/rivo/uniseg"
++	"strings"
++)
++
++// Iconed decorates the same pane that supplies the title, inside its width budget.
++type Iconed struct {
++	inner     TitleResolver
++	maxLength int
++}
++
++func NewIconed(inner TitleResolver, maxLength int) *Iconed {
++	if maxLength <= 0 {
++		maxLength = DefaultMaxLength
++	}
++
++	return &Iconed{inner: inner, maxLength: maxLength}
++}
++
++func (i *Iconed) Resolve(tab state.TabState) Decision {
++	decision := i.inner.Resolve(tab)
++	prefix := paneIcon(state.SelectContextPane(tab)) + " "
++
++	room := i.maxLength - uniseg.StringWidth(prefix)
++	if room <= 0 {
++		return decision
++	}
++
++	name := truncate(decision.Name, room)
++	if name != "" {
++		decision.Name = prefix + name
++	}
++
++	return decision
++}
++
++func paneIcon(pane *state.PaneState) string {
++	if pane == nil {
++		return ""
++	}
++
++	if pane.HasAgent() {
++		switch strings.ToLower(pane.Agent) {
++		case "claude":
++			return ""
++		case "codex":
++			return "󰚩"
++		case "gemini":
++			return ""
++		default:
++			return "󰚩"
++		}
++	}
++
++	for _, process := range pane.Processes {
++		name := strings.TrimSuffix(strings.ToLower(process.Name), ".exe")
++		if _, shell := shellNames[name]; shell {
++			continue
++		}
++
++		switch name {
++		case "nvim", "vim", "vi":
++			return ""
++		case "yazi":
++			return ""
++		case "git", "lazygit":
++			return ""
++		case "python", "python3":
++			return ""
++		case "node", "npm":
++			return ""
++		case "cargo", "rustc":
++			return ""
++		case "ssh":
++			return "󰣀"
++		case "top", "htop", "btop":
++			return ""
++		default:
++			return ""
++		}
++	}
++
++	return ""
++}
+diff --git a/internal/resolver/icons_test.go b/internal/resolver/icons_test.go
+new file mode 100644
+index 0000000..4de1018
+--- /dev/null
++++ b/internal/resolver/icons_test.go
+@@ -0,0 +1,78 @@
++package resolver
++
++import (
++	"github.com/kryptamine/herdr-auto-title/internal/state"
++	"github.com/rivo/uniseg"
++	"strings"
++	"testing"
++)
++
++func TestIconSelection(t *testing.T) {
++	tests := []struct {
++		name string
++		pane *state.PaneState
++		want string
++	}{
++		{"no pane", nil, ""},
++		{
++			"agent before process",
++			&state.PaneState{Agent: "claude", Processes: []state.Process{{Name: "node"}}},
++			"",
++		},
++		{"codex", &state.PaneState{Agent: "codex"}, "󰚩"},
++		{"unknown agent", &state.PaneState{Agent: "future-agent"}, "󰚩"},
++		{"editor", &state.PaneState{Processes: []state.Process{{Name: "nvim.exe"}}}, ""},
++		{"yazi", &state.PaneState{Processes: []state.Process{{Name: "yazi"}}}, ""},
++		{"shell", &state.PaneState{Processes: []state.Process{{Name: "fish"}}}, ""},
++	}
++	for _, tc := range tests {
++		t.Run(tc.name, func(t *testing.T) {
++			if got := paneIcon(tc.pane); got != tc.want {
++				t.Fatalf("icon = %q, want %q", got, tc.want)
++			}
++		})
++	}
++}
++
++func TestIconNumberAndLiveTitle(t *testing.T) {
++	pane := &state.PaneState{Agent: "codex", AgentTitle: "Fix login", Focused: true}
++	tab := state.TabState{Position: 2, Panes: []*state.PaneState{pane}}
++	chain := Default(Options{MaxLength: 50, HideAgentName: true})
++
++	r := NewIconed(NewNumbered(chain, 50), 50)
++	if got := r.Resolve(tab).Name; got != "󰚩 2 · Fix login" {
++		t.Fatalf("title = %q", got)
++	}
++
++	pane.AgentTitle = "Review tests"
++
++	if got := r.Resolve(tab).Name; got != "󰚩 2 · Review tests" {
++		t.Fatalf("updated title = %q", got)
++	}
++
++	pane.AgentTitle = strings.Repeat("界", 100)
++
++	got := r.Resolve(tab)
++	if uniseg.StringWidth(got.Name) > 50 || !strings.HasPrefix(got.Name, "󰚩 2 · ") {
++		t.Fatalf("bad width or prefix: %q", got.Name)
++	}
++}
++
++func TestIconsFollowFocusedPane(t *testing.T) {
++	claude := &state.PaneState{ID: "a", Agent: "claude", AgentTitle: "Review", Focused: true}
++	codex := &state.PaneState{ID: "b", Agent: "codex", TerminalTitle: "Implement"}
++	tab := state.TabState{Position: 1, Panes: []*state.PaneState{claude, codex}}
++	chain := Default(Options{MaxLength: 50, HideAgentName: true})
++
++	r := NewIconed(NewNumbered(chain, 50), 50)
++	if got := r.Resolve(tab).Name; got != " 1 · Review" {
++		t.Fatalf("focused Claude: %q", got)
++	}
++
++	claude.Focused = false
++	codex.Focused = true
++
++	if got := r.Resolve(tab).Name; got != "󰚩 1 · Implement" {
++		t.Fatalf("focused Codex: %q", got)
++	}
++}
