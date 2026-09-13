@@ -1,0 +1,5 @@
+config:
+  show-name: "auto"
+  icon-position: "left"
+  prefer-agent-icons: true
+  poll-interval: 2
