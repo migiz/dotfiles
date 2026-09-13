@@ -21,6 +21,8 @@ for dependency in herdr git go yazi python3; do
     command -v "$dependency" >/dev/null || { echo "Missing dependency: $dependency" >&2; exit 1; }
 done
 
+python3 "$repo_dir/scripts/install-herdr-font.py"
+
 # Copy settings before registering plugins. Preserve any different existing file.
 copy_config() {
     local source=$1 destination=$2 backup
@@ -56,7 +58,7 @@ git -C "$auto_title_dir" apply --unidiff-zero --check "$repo_dir/herdr/patches/a
 git -C "$auto_title_dir" apply --unidiff-zero "$repo_dir/herdr/patches/auto-title.patch"
 (
     cd -- "$auto_title_dir"
-    go test ./...
+    go test -race ./...
     go build -o herdr-auto-title ./cmd/herdr-auto-title
 )
 herdr plugin link "$auto_title_dir"

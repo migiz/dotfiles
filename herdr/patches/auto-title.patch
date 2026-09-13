@@ -1,31 +1,39 @@
 diff --git a/cmd/herdr-auto-title/main.go b/cmd/herdr-auto-title/main.go
-index e88303b..013f7cb 100644
+index e88303b..c15f29f 100644
 --- a/cmd/herdr-auto-title/main.go
 +++ b/cmd/herdr-auto-title/main.go
-@@ -60,0 +61,4 @@ func run() error {
+@@ -53,0 +54 @@ func run() error {
++		TitleSuffix:   cfg.TitleSuffix,
+@@ -56,0 +58,4 @@ func run() error {
 +	if cfg.ShowIcons {
 +		titles = resolver.NewIconed(titles, cfg.MaxLength)
 +	}
 +
+@@ -58 +63 @@ func run() error {
+-		titles = resolver.NewNumbered(chain, cfg.MaxLength)
++		titles = resolver.NewNumbered(titles, cfg.MaxLength)
 diff --git a/config.env.example b/config.env.example
-index 5c9d884..e9dc2a7 100644
+index 5c9d884..c7a9861 100644
 --- a/config.env.example
 +++ b/config.env.example
-@@ -35,0 +36,3 @@
+@@ -35,0 +36,6 @@
 +
 +# Local extension: prefix the title with a Nerd Font agent/program icon.
 +#HERDR_AUTO_TITLE_ICONS=false
++
++# Optional exact suffix to remove from agent activity before width fitting.
++#HERDR_AUTO_TITLE_TITLE_SUFFIX=""
 diff --git a/docs/architecture/local-icons.md b/docs/architecture/local-icons.md
 new file mode 100644
-index 0000000..6649310
+index 0000000..c833a4e
 --- /dev/null
 +++ b/docs/architecture/local-icons.md
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,17 @@
 +# Local icon extension
 +
 +Enable `HERDR_AUTO_TITLE_ICONS=true` to prefix Auto Title's own decision with
-+an agent or foreground-program icon. The existing position decorator runs first,
-+so the output is `icon position · title`. Both decorators honor the title width
++an agent or foreground-program icon. The position decorator runs last,
++so the output is `[position] icon title`, with one space after the number and two after the icon. Both decorators honor the title width
 +limit and use the same context pane as the title resolver.
 +
 +`HERDR_AUTO_TITLE_AGENT_NAME=false` removes repeated agent text.
@@ -35,23 +43,45 @@ index 0000000..6649310
 +mistaken for a manual rename and prevent future title updates.
 +
 +This checkout is a local branch; merging upstream changes requires rebuilding.
++
++`HERDR_AUTO_TITLE_TITLE_SUFFIX` optionally removes an exact trailing string
++from agent activity before width fitting. Its default is empty.
 diff --git a/internal/app/config.go b/internal/app/config.go
-index c28989c..fc3373e 100644
+index c28989c..04ece7f 100644
 --- a/internal/app/config.go
 +++ b/internal/app/config.go
-@@ -28,0 +29 @@ const (
-+	EnvIcons      = "HERDR_AUTO_TITLE_ICONS"
-@@ -63,0 +65 @@ type Config struct {
+@@ -21,8 +21,10 @@ const (
+-	EnvDebug      = "HERDR_AUTO_TITLE_DEBUG"
+-	EnvPoll       = "HERDR_AUTO_TITLE_POLL_MS"
+-	EnvMaxLength  = "HERDR_AUTO_TITLE_MAX_LENGTH"
+-	EnvBranchMax  = "HERDR_AUTO_TITLE_BRANCH_MAX"
+-	EnvPosition   = "HERDR_AUTO_TITLE_POSITION"
+-	EnvManual     = "HERDR_AUTO_TITLE_MANUAL_FILE"
+-	EnvTranscript = "HERDR_AUTO_TITLE_TRANSCRIPT"
+-	EnvAgentName  = "HERDR_AUTO_TITLE_AGENT_NAME"
++	EnvDebug       = "HERDR_AUTO_TITLE_DEBUG"
++	EnvPoll        = "HERDR_AUTO_TITLE_POLL_MS"
++	EnvMaxLength   = "HERDR_AUTO_TITLE_MAX_LENGTH"
++	EnvBranchMax   = "HERDR_AUTO_TITLE_BRANCH_MAX"
++	EnvPosition    = "HERDR_AUTO_TITLE_POSITION"
++	EnvManual      = "HERDR_AUTO_TITLE_MANUAL_FILE"
++	EnvTranscript  = "HERDR_AUTO_TITLE_TRANSCRIPT"
++	EnvAgentName   = "HERDR_AUTO_TITLE_AGENT_NAME"
++	EnvIcons       = "HERDR_AUTO_TITLE_ICONS"
++	EnvTitleSuffix = "HERDR_AUTO_TITLE_TITLE_SUFFIX"
+@@ -63,0 +66,2 @@ type Config struct {
 +	ShowIcons     bool
-@@ -92,0 +95 @@ func LoadConfig() (Config, []string) {
++	TitleSuffix   string
+@@ -92,0 +97,2 @@ func LoadConfig() (Config, []string) {
 +	cfg.ShowIcons = fromEnv(&warnings, EnvIcons, cfg.ShowIcons, boolean)
++	cfg.TitleSuffix = os.Getenv(EnvTitleSuffix)
 diff --git a/internal/app/config_test.go b/internal/app/config_test.go
-index f050e25..9ec99ae 100644
+index f050e25..38ca897 100644
 --- a/internal/app/config_test.go
 +++ b/internal/app/config_test.go
 @@ -30 +30 @@ func isolate(t *testing.T) {
 -		EnvPosition, EnvManual, EnvTranscript, EnvAgentName,
-+		EnvPosition, EnvManual, EnvTranscript, EnvAgentName, EnvIcons,
++		EnvPosition, EnvManual, EnvTranscript, EnvAgentName, EnvIcons, EnvTitleSuffix,
 @@ -372,0 +373,10 @@ func TestAnUnsetManualFileKeepsTheDefault(t *testing.T) {
 +
 +func TestIconConfiguration(t *testing.T) {
@@ -65,10 +95,10 @@ index f050e25..9ec99ae 100644
 +}
 diff --git a/internal/resolver/icons.go b/internal/resolver/icons.go
 new file mode 100644
-index 0000000..a25cbef
+index 0000000..43eec91
 --- /dev/null
 +++ b/internal/resolver/icons.go
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,127 @@
 +package resolver
 +
 +import (
@@ -93,7 +123,7 @@ index 0000000..a25cbef
 +
 +func (i *Iconed) Resolve(tab state.TabState) Decision {
 +	decision := i.inner.Resolve(tab)
-+	prefix := paneIcon(state.SelectContextPane(tab)) + " "
++	prefix := paneIcon(state.SelectContextPane(tab)) + "  "
 +
 +	room := i.maxLength - uniseg.StringWidth(prefix)
 +	if room <= 0 {
@@ -116,13 +146,53 @@ index 0000000..a25cbef
 +	if pane.HasAgent() {
 +		switch strings.ToLower(pane.Agent) {
 +		case "claude":
-+			return ""
++			return ""
 +		case "codex":
-+			return "󰚩"
++			return ""
++		case "cursor":
++			return ""
++		case "copilot":
++			return ""
 +		case "gemini":
-+			return ""
-+		default:
++			return "✦"
++		case "pi":
++			return "π"
++		case "omp":
++			return "⌥"
++		case "agy":
++			return "⋂"
++		case "opencode":
++			return "▣"
++		case "grok":
++			return "𝚇"
++		case "kiro":
++			return "󰊠"
++		case "droid":
 +			return "󰚩"
++		case "amp":
++			return "󰉁"
++		case "hermes":
++			return "☤"
++		case "kimi":
++			return "󰽧"
++		case "devin":
++			return "DV"
++		case "cline":
++			return "CL"
++		case "mastracode":
++			return "MC"
++		case "kilo":
++			return "KL"
++		case "qodercli":
++			return "QD"
++		case "qwen":
++			return "QW"
++		case "maki":
++			return "MK"
++		case "muse":
++			return "MU"
++		default:
++			return "?"
 +		}
 +	}
 +
@@ -158,10 +228,10 @@ index 0000000..a25cbef
 +}
 diff --git a/internal/resolver/icons_test.go b/internal/resolver/icons_test.go
 new file mode 100644
-index 0000000..4de1018
+index 0000000..eaa2b55
 --- /dev/null
 +++ b/internal/resolver/icons_test.go
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,137 @@
 +package resolver
 +
 +import (
@@ -181,10 +251,10 @@ index 0000000..4de1018
 +		{
 +			"agent before process",
 +			&state.PaneState{Agent: "claude", Processes: []state.Process{{Name: "node"}}},
-+			"",
++			"",
 +		},
-+		{"codex", &state.PaneState{Agent: "codex"}, "󰚩"},
-+		{"unknown agent", &state.PaneState{Agent: "future-agent"}, "󰚩"},
++		{"codex", &state.PaneState{Agent: "codex"}, ""},
++		{"unknown agent", &state.PaneState{Agent: "future-agent"}, "?"},
 +		{"editor", &state.PaneState{Processes: []state.Process{{Name: "nvim.exe"}}}, ""},
 +		{"yazi", &state.PaneState{Processes: []state.Process{{Name: "yazi"}}}, ""},
 +		{"shell", &state.PaneState{Processes: []state.Process{{Name: "fish"}}}, ""},
@@ -203,21 +273,21 @@ index 0000000..4de1018
 +	tab := state.TabState{Position: 2, Panes: []*state.PaneState{pane}}
 +	chain := Default(Options{MaxLength: 50, HideAgentName: true})
 +
-+	r := NewIconed(NewNumbered(chain, 50), 50)
-+	if got := r.Resolve(tab).Name; got != "󰚩 2 · Fix login" {
++	r := NewNumbered(NewIconed(chain, 50), 50)
++	if got := r.Resolve(tab).Name; got != "[2]   Fix login" {
 +		t.Fatalf("title = %q", got)
 +	}
 +
 +	pane.AgentTitle = "Review tests"
 +
-+	if got := r.Resolve(tab).Name; got != "󰚩 2 · Review tests" {
++	if got := r.Resolve(tab).Name; got != "[2]   Review tests" {
 +		t.Fatalf("updated title = %q", got)
 +	}
 +
 +	pane.AgentTitle = strings.Repeat("界", 100)
 +
 +	got := r.Resolve(tab)
-+	if uniseg.StringWidth(got.Name) > 50 || !strings.HasPrefix(got.Name, "󰚩 2 · ") {
++	if uniseg.StringWidth(got.Name) > 50 || !strings.HasPrefix(got.Name, "[2]   ") {
 +		t.Fatalf("bad width or prefix: %q", got.Name)
 +	}
 +}
@@ -228,15 +298,124 @@ index 0000000..4de1018
 +	tab := state.TabState{Position: 1, Panes: []*state.PaneState{claude, codex}}
 +	chain := Default(Options{MaxLength: 50, HideAgentName: true})
 +
-+	r := NewIconed(NewNumbered(chain, 50), 50)
-+	if got := r.Resolve(tab).Name; got != " 1 · Review" {
++	r := NewNumbered(NewIconed(chain, 50), 50)
++	if got := r.Resolve(tab).Name; got != "[1]   Review" {
 +		t.Fatalf("focused Claude: %q", got)
 +	}
 +
 +	claude.Focused = false
 +	codex.Focused = true
 +
-+	if got := r.Resolve(tab).Name; got != "󰚩 1 · Implement" {
++	if got := r.Resolve(tab).Name; got != "[1]   Implement" {
 +		t.Fatalf("focused Codex: %q", got)
 +	}
 +}
++
++func TestAllSupportedAgentIconsAreDistinct(t *testing.T) {
++	agents := []string{
++		"claude",
++		"codex",
++		"cursor",
++		"copilot",
++		"gemini",
++		"pi",
++		"omp",
++		"agy",
++		"opencode",
++		"grok",
++		"kiro",
++		"droid",
++		"amp",
++		"hermes",
++		"kimi",
++		"devin",
++		"cline",
++		"mastracode",
++		"kilo",
++		"qodercli",
++		"qwen",
++		"maki",
++		"muse",
++	}
++	seen := map[string]string{}
++
++	for _, agent := range agents {
++		icon := paneIcon(&state.PaneState{Agent: agent})
++		if icon == "?" || icon == "" {
++			t.Fatalf("missing icon for %s", agent)
++		}
++
++		if previous, exists := seen[icon]; exists {
++			t.Fatalf("%s and %s share %q", previous, agent, icon)
++		}
++
++		seen[icon] = agent
++	}
++}
++
++func TestConfiguredSuffixRemovedBeforeTitleWidthLimit(t *testing.T) {
++	pane := &state.PaneState{Agent: "codex", AgentTitle: "Fix login | mikko", Focused: true}
++	tab := state.TabState{Position: 1, Panes: []*state.PaneState{pane}}
++	chain := Default(Options{MaxLength: 24, HideAgentName: true, TitleSuffix: " | mikko"})
++
++	r := NewNumbered(NewIconed(chain, 24), 24)
++	if got := r.Resolve(tab).Name; got != "[1]   Fix login" {
++		t.Fatalf("title = %q", got)
++	}
++
++	pane.AgentTitle = "Fix | mikko login"
++
++	if got := r.Resolve(tab).Name; got != "[1]   Fix | mikko login" {
++		t.Fatalf("non-suffix changed: %q", got)
++	}
++}
+diff --git a/internal/resolver/position.go b/internal/resolver/position.go
+index fc58b8a..c7f0a6a 100644
+--- a/internal/resolver/position.go
++++ b/internal/resolver/position.go
+@@ -14 +14 @@ import (
+-const positionMark = " · "
++const positionMark = " "
+@@ -46 +46 @@ func (n *Numbered) Resolve(tab state.TabState) Decision {
+-	prefix := strconv.Itoa(tab.Position) + positionMark
++	prefix := "[" + strconv.Itoa(tab.Position) + "]" + positionMark
+diff --git a/internal/resolver/position_test.go b/internal/resolver/position_test.go
+index 5667d65..58d98aa 100644
+--- a/internal/resolver/position_test.go
++++ b/internal/resolver/position_test.go
+@@ -34,3 +34,3 @@ func TestPositionLeadsTheTitle(t *testing.T) {
+-		{"the first tab", 1, dashboard, "1 · dashboard"},
+-		{"a tab past the ninth", 12, dashboard, "12 · dashboard"},
+-		{"a tab with nothing to say", 3, herdrtest.Root(), "3 · " + GenericFallback},
++		{"the first tab", 1, dashboard, "[1] dashboard"},
++		{"a tab past the ninth", 12, dashboard, "[12] dashboard"},
++		{"a tab with nothing to say", 3, herdrtest.Root(), "[3] " + GenericFallback},
+@@ -69 +69 @@ func TestAPositionIsCountedAgainstTheWidth(t *testing.T) {
+-	if !strings.HasPrefix(got.Name, "7 · ") {
++	if !strings.HasPrefix(got.Name, "[7] ") {
+@@ -87 +87 @@ func TestNumberedWithoutAWidthTakesTheDefault(t *testing.T) {
+-	if got.Name != "2 · api" {
++	if got.Name != "[2] api" {
+@@ -111 +111 @@ func TestAnyResolverCanBeNumbered(t *testing.T) {
+-		Name:       "4 · release notes",
++		Name:       "[4] release notes",
+@@ -127,2 +127,2 @@ func TestANumberedTitleLeavesNoDanglingSeparator(t *testing.T) {
+-	if got.Name != "1 · dashboard" {
+-		t.Errorf("name = %q, want %q", got.Name, "1 · dashboard")
++	if got.Name != "[1] dashboard" {
++		t.Errorf("name = %q, want %q", got.Name, "[1] dashboard")
+diff --git a/internal/resolver/resolver.go b/internal/resolver/resolver.go
+index 5dee038..e300a74 100644
+--- a/internal/resolver/resolver.go
++++ b/internal/resolver/resolver.go
+@@ -115,0 +116 @@ type Options struct {
++	TitleSuffix   string
+@@ -122,0 +124 @@ type Deterministic struct {
++	titleSuffix   string
+@@ -142,0 +145 @@ func New(opts Options, sources ...Source) *Deterministic {
++		titleSuffix:   opts.TitleSuffix,
+@@ -165,0 +169,4 @@ func (d *Deterministic) Resolve(tab state.TabState) Decision {
++	if parts.Agent != "" && d.titleSuffix != "" {
++		parts.Activity = strings.TrimSuffix(parts.Activity, d.titleSuffix)
++	}
++
