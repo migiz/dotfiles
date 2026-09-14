@@ -54,8 +54,7 @@ All pins are recorded in [the setup script](../scripts/setup-herdr.sh).
 Auto Title settings are in [.config/herdr-auto-title/config.env](.config/herdr-auto-title/config.env).
 
 The current local icon preview covers 23 agent kinds. It uses Nerd Fonts 3.5+
-brand glyphs, provisional symbols, and distinct text marks. Preview the samples
-in your terminal with `cat herdr/agent-icons-preview.txt` from the repo root.
+brand glyphs, provisional symbols, and distinct text marks.
 The unknown-agent marker is `?`; the icon choices are still under review.
 
 Labels use `[1] <icon>  Title`: one space after the bracketed number and two
